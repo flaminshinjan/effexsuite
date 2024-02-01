@@ -16,6 +16,114 @@ const supabaseUrl = 'https://xihueczeqyejpcooynxq.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhpaHVlY3plcXllanBjb295bnhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE2ODU3MTM5NjcsImV4cCI6MjAwMTI4OTk2N30.eCHuAxOIKmme_gT_qCm6uf3HjhJEeJ4kPCx8JNWr8sU'; // Place your API key here
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Create a new project assignment for an employee
+app.post('/project-assignments', async (req, res) => {
+    try {
+        const {
+            employee_id,
+            current_ongoing_projects,
+            upcoming_projects,
+            allocated_projects,
+            progress
+        } = req.body;
+
+        if (!employee_id) {
+            return res.status(400).send("Employee ID not provided.");
+        }
+
+        // Insert the project assignment into the 'project_assignments' table
+        const { error } = await supabase
+            .from('project_assignments')
+            .insert([
+                {
+                    employee_id,
+                    current_ongoing_projects,
+                    upcoming_projects,
+                    allocated_projects,
+                    progress
+                }
+            ]);
+
+        if (error) throw error;
+
+        res.send("Project assignment created successfully.");
+    } catch (error) {
+        console.error("Error in creating project assignment:", error);
+        res.status(500).send("An error occurred while creating project assignment.");
+    }
+});
+
+// Get project assignments for an employee by employee ID
+app.get('/project-assignments/:employee_id', async (req, res) => {
+    try {
+        const employee_id = req.params.employee_id;
+
+        // Retrieve project assignments for the specified employee ID
+        const { data, error } = await supabase
+            .from('project_assignments')
+            .select()
+            .eq('employee_id', employee_id);
+
+        if (error) throw error;
+
+        res.send(data);
+    } catch (error) {
+        console.error("Error in fetching project assignments:", error);
+        res.status(500).send("An error occurred while fetching project assignments.");
+    }
+});
+
+// Update project assignments for an employee by employee ID
+app.put('/project-assignments/:employee_id', async (req, res) => {
+    try {
+        const employee_id = req.params.employee_id;
+        const {
+            current_ongoing_projects,
+            upcoming_projects,
+            allocated_projects,
+            progress
+        } = req.body;
+
+        // Update the project assignments for the specified employee ID
+        const { error } = await supabase
+            .from('project_assignments')
+            .update({
+                current_ongoing_projects,
+                upcoming_projects,
+                allocated_projects,
+                progress
+            })
+            .eq('employee_id', employee_id);
+
+        if (error) throw error;
+
+        res.send("Project assignments updated successfully.");
+    } catch (error) {
+        console.error("Error in updating project assignments:", error);
+        res.status(500).send("An error occurred while updating project assignments.");
+    }
+});
+
+// Delete project assignments for an employee by employee ID
+app.delete('/project-assignments/:employee_id', async (req, res) => {
+    try {
+        const employee_id = req.params.employee_id;
+
+        // Delete project assignments for the specified employee ID
+        const { error } = await supabase
+            .from('project_assignments')
+            .delete()
+            .eq('employee_id', employee_id);
+
+        if (error) throw error;
+
+        res.send("Project assignments deleted successfully.");
+    } catch (error) {
+        console.error("Error in deleting project assignments:", error);
+        res.status(500).send("An error occurred while deleting project assignments.");
+    }
+});
+
 app.get('/employees', async (req, res) => {
     const {data, error} = await supabase
         .from('employees')
@@ -200,21 +308,42 @@ app.post('/employees/allocate-upcoming-projects', async (req, res) => {
 
         if (fetchError) throw fetchError;
 
+        // Check if there are no employees
+        if (employees.length === 0) {
+            return res.status(404).send("No employees found for project allocation.");
+        }
+
+        // Initialize a batch operation for efficiency
+        let batchOperation = [];
+
         // Allocate the project to eligible employees
-        for (const employee of employees) {
-            if (
-                arraysAreEqual(employee.ongoing_projects, employee.near_to_complete_projects) &&
-                !employee.allocated_projects.includes(newProject) // Check if the project is not already allocated
-            ) {
-                const updatedAllocatedProjects = [...(employee.allocated_projects || []), newProject];
+        // Allocate the project to eligible employees
+for (const employee of employees) {
+    // Ensure employee.allocated_projects is not null or undefined
+    const allocatedProjects = employee.allocated_projects || [];
 
-                const { error: updateError } = await supabase
-                    .from('employees')
-                    .update({ allocated_projects: updatedAllocatedProjects })
-                    .eq('id', employee.id);
+    if (
+        arraysAreEqual(employee.ongoing_projects, employee.near_to_complete_projects) &&
+        !allocatedProjects.includes(newProject)
+    ) {
+        const updatedAllocatedProjects = [...allocatedProjects, newProject];
 
-                if (updateError) throw updateError;
-            }
+        batchOperation.push(
+            supabase
+                .from('employees')
+                .update({ allocated_projects: updatedAllocatedProjects })
+                .eq('id', employee.id)
+        );
+    }
+}
+
+
+        // Execute batch operation
+        const batchResults = await Promise.all(batchOperation);
+        const updateErrors = batchResults.filter(result => result.error);
+
+        if (updateErrors.length > 0) {
+            throw new Error('Error updating some employees.');
         }
 
         res.send("Upcoming projects allocated to eligible employees.");
@@ -223,7 +352,6 @@ app.post('/employees/allocate-upcoming-projects', async (req, res) => {
         res.status(500).send("An error occurred while allocating upcoming projects.");
     }
 });
-
 
 // Helper function to check if two arrays are equal
 function arraysAreEqual(arr1, arr2) {
