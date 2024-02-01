@@ -32,19 +32,46 @@ app.get('/employees/:id', async (req, res) => {
 });
 
 app.post('/employees', async (req, res) => {
-    const {error} = await supabase
-        .from('employees')
-        .insert({
-            emp_name: req.body.emp_name,
-            emp_mail: req.body.emp_mail,
-            emp_phone: req.body.emp_phone,
-            emp_id: req.body.emp_id
-        })
+    const newEmployee = {
+        emp_name: req.body.emp_name,
+        emp_mail: req.body.emp_mail,
+        emp_phone: req.body.emp_phone,
+        emp_id: req.body.emp_id,
+        ongoing_projects: req.body.ongoing_projects, // Expecting an array
+        near_to_complete_projects: req.body.near_to_complete_projects, // Expecting an array
+        skills_currently_in_implementation: req.body.skills_currently_in_implementation // Expecting an array
+    };
+    const { error } = await supabase.from('employees').insert(newEmployee);
+
     if (error) {
-        res.send(error);
+        return res.status(400).send(error);
     }
-    res.send("created!!");
+    res.send("Employee created!!");
 });
+
+
+
+app.get('/employees/skill/:skill', async (req, res) => {
+    const skillRequired = req.params.skill;
+    
+    try {
+        const { data, error } = await supabase
+            .from('employees')
+            .select('emp_name')
+            .filter('skills_currently_in_implementation', 'cs', `{${skillRequired}}`);
+
+        if (error) {
+            throw error;
+        }
+
+        res.send(data.map(emp => emp.emp_name));
+    } catch (error) {
+        console.error("Error in fetching employees by skill:", error);
+        res.status(500).send("An error occurred while fetching employees by skill.");
+    }
+});
+
+
 
 app.put('/employees/:id', async (req, res) => {
     const {error} = await supabase
